@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { Cpu, Clock, CheckCircle, Activity, RefreshCw, ExternalLink } from 'lucide-react';
+import { Cpu, Clock, CheckCircle, Activity, RefreshCw, ExternalLink, Play, Settings, Zap, AlertCircle } from 'lucide-react';
 
 // Detect deployment environment and use the correct API URL
 const getApiUrl = () => {
@@ -31,6 +31,11 @@ function App() {
   const [selectedJob, setSelectedJob] = useState(null);
   const [jobHistory, setJobHistory] = useState(null);
   const [loading, setLoading] = useState(false);
+  const [captureToken, setCaptureToken] = useState('');
+  const [tokenSaved, setTokenSaved] = useState(false);
+  const [demoRunning, setDemoRunning] = useState(false);
+  const [demoStatus, setDemoStatus] = useState('');
+  const [currentJobNid, setCurrentJobNid] = useState(null);
 
   const fetchJobs = async () => {
     setLoading(true);
@@ -47,23 +52,152 @@ function App() {
   };
 
   const fetchJobHistory = async (jobNid) => {
+    console.log('🔍 Fetching job history for:', jobNid);
     setLoading(true);
+    setSelectedJob(jobNid); // Set the selected job
+    console.log('✅ Set selectedJob to:', jobNid);
     try {
-      // Instead of calling /history endpoint, just get the job from the jobs list
-      const job = jobs.find(j => j.jobNid === jobNid);
-      if (job) {
-        setJobHistory(job);
-        setSelectedJob(jobNid);
+      const response = await fetch(`${API_URL}/api/jobs/${jobNid}/history`);
+      const data = await response.json();
+      console.log('📦 Received data:', data);
+      if (data.success) {
+        setJobHistory(data);
+        console.log('✅ Set jobHistory:', data);
+      } else {
+        console.error('❌ API returned success=false:', data);
       }
     } catch (error) {
-      console.error('Error fetching job history:', error);
+      console.error('❌ Error fetching job history:', error);
     }
     setLoading(false);
   };
 
+  const saveToken = () => {
+    if (captureToken.trim()) {
+      localStorage.setItem('CAPTURE_API_TOKEN', captureToken);
+      setTokenSaved(true);
+      setTimeout(() => setTokenSaved(false), 3000);
+    }
+  };
+
+  const runCompleteDemo = async () => {
+    if (!captureToken.trim()) {
+      alert('Please enter your CAPTURE API token first!');
+      return;
+    }
+
+    setDemoRunning(true);
+    setDemoStatus('Submitting job...');
+
+    try {
+      // Step 1: Submit job
+      const submitResponse = await fetch(`${API_URL}/api/jobs/submit`, {
+        method: 'POST',
+        headers: { 
+          'Content-Type': 'application/json',
+          'X-Capture-Token': captureToken
+        },
+        body: JSON.stringify({
+          jobId: `gpu-job-${Date.now()}`,
+          model: 'llama-3.1-70b',
+          dataset: 'openwebtext',
+          gpu: 'A100-80GB',
+          estimatedTime: '2h'
+        })
+      });
+      const submitData = await submitResponse.json();
+      if (!submitData.success) throw new Error('Failed to submit job');
+      
+      const jobNid = submitData.jobNid;
+      setCurrentJobNid(jobNid);
+      setDemoStatus(`Job submitted! NID: ${jobNid.substring(0, 12)}...`);
+      await new Promise(r => setTimeout(r, 2000));
+
+      // Step 2: Schedule
+      setDemoStatus('Scheduling job...');
+      await fetch(`${API_URL}/api/jobs/${jobNid}/scheduled`, {
+        method: 'POST',
+        headers: { 
+          'Content-Type': 'application/json',
+          'X-Capture-Token': captureToken
+        },
+        body: JSON.stringify({ 
+          scheduledNode: 'gpu-node-7',
+          queuePosition: 3
+        })
+      });
+      await new Promise(r => setTimeout(r, 2000));
+
+      // Step 3: Start
+      setDemoStatus('Starting job execution...');
+      await fetch(`${API_URL}/api/jobs/${jobNid}/started`, {
+        method: 'POST',
+        headers: { 
+          'Content-Type': 'application/json',
+          'X-Capture-Token': captureToken
+        },
+        body: JSON.stringify({ 
+          startTime: new Date().toISOString(),
+          nodeId: 'gpu-node-7'
+        })
+      });
+      await new Promise(r => setTimeout(r, 2000));
+
+      // Step 4: Progress updates
+      for (let i = 1; i <= 3; i++) {
+        setDemoStatus(`Progress update ${i}/3...`);
+        await fetch(`${API_URL}/api/jobs/${jobNid}/progress`, {
+          method: 'POST',
+          headers: { 
+            'Content-Type': 'application/json',
+            'X-Capture-Token': captureToken
+          },
+          body: JSON.stringify({ 
+            progress: i * 30,
+            currentEpoch: i * 10,
+            loss: (0.5 - i * 0.1).toFixed(3)
+          })
+        });
+        await new Promise(r => setTimeout(r, 2000));
+      }
+
+      // Step 5: Complete
+      setDemoStatus('Completing job...');
+      await fetch(`${API_URL}/api/jobs/${jobNid}/completed`, {
+        method: 'POST',
+        headers: { 
+          'Content-Type': 'application/json',
+          'X-Capture-Token': captureToken
+        },
+        body: JSON.stringify({ 
+          finalAccuracy: 0.94,
+          totalEpochs: 50,
+          modelPath: '/models/llama-3.1-70b-finetuned.pt'
+        })
+      });
+
+      setDemoStatus('✅ Demo complete! Refreshing...');
+      await new Promise(r => setTimeout(r, 1000));
+      await fetchJobs();
+      setDemoStatus('');
+      setDemoRunning(false);
+    } catch (error) {
+      console.error('Demo error:', error);
+      setDemoStatus(`❌ Error: ${error.message}`);
+      setDemoRunning(false);
+    }
+  };
+
   useEffect(() => {
     fetchJobs();
-    const interval = setInterval(fetchJobs, 10000);
+    const interval = setInterval(fetchJobs, 5000);
+    
+    // Load saved token
+    const savedToken = localStorage.getItem('CAPTURE_API_TOKEN');
+    if (savedToken) {
+      setCaptureToken(savedToken);
+    }
+    
     return () => clearInterval(interval);
   }, []);
 
@@ -88,15 +222,101 @@ function App() {
                 <p className="text-sm text-gray-400">GPU Job Receipt Dashboard</p>
               </div>
             </div>
-            <button onClick={fetchJobs} disabled={loading} className="flex items-center space-x-2 bg-blue-600 hover:bg-blue-700 px-4 py-2 rounded-lg transition">
-              <RefreshCw className={`w-4 h-4 \${loading ? 'animate-spin' : ''}`} />
-              <span>Refresh</span>
-            </button>
+            <div className="flex items-center space-x-4">
+              <div className="text-right">
+                <p className="text-xs text-gray-400">Powered by</p>
+                <p className="text-sm font-semibold text-blue-400">Numbers Protocol</p>
+              </div>
+            </div>
           </div>
         </div>
       </header>
 
       <main className="container mx-auto px-6 py-8">
+        {/* Token Configuration & Actions */}
+        <div className="mb-8 bg-black bg-opacity-40 backdrop-blur-md border border-purple-500 rounded-xl p-6">
+          <div className="flex items-center mb-4">
+            <Settings className="w-6 h-6 text-purple-400 mr-2" />
+            <h2 className="text-xl font-bold">Configuration & Actions</h2>
+          </div>
+          
+          <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+            {/* Token Input Section */}
+            <div>
+              <label className="block text-sm font-medium text-gray-300 mb-2">
+                Numbers Protocol CAPTURE API Token
+              </label>
+              <div className="flex space-x-2">
+                <input
+                  type="password"
+                  value={captureToken}
+                  onChange={(e) => setCaptureToken(e.target.value)}
+                  placeholder="Enter your CAPTURE API token..."
+                  className="flex-1 bg-gray-800 border border-gray-600 rounded-lg px-4 py-2 text-white focus:outline-none focus:border-purple-500"
+                />
+                <button
+                  onClick={saveToken}
+                  className={`px-6 py-2 rounded-lg font-medium transition ${
+                    tokenSaved 
+                      ? 'bg-green-600 text-white' 
+                      : 'bg-purple-600 hover:bg-purple-700 text-white'
+                  }`}
+                >
+                  {tokenSaved ? '✓ Saved' : 'Save'}
+                </button>
+              </div>
+              <p className="text-xs text-gray-400 mt-2">
+                Token is stored in browser localStorage and sent with API requests
+              </p>
+            </div>
+
+            {/* Action Buttons */}
+            <div>
+              <label className="block text-sm font-medium text-gray-300 mb-2">
+                Quick Actions
+              </label>
+              <div className="flex flex-wrap gap-3">
+                <button
+                  onClick={runCompleteDemo}
+                  disabled={demoRunning || !captureToken}
+                  className={`flex items-center space-x-2 px-6 py-2 rounded-lg font-medium transition ${
+                    demoRunning || !captureToken
+                      ? 'bg-gray-700 text-gray-400 cursor-not-allowed'
+                      : 'bg-gradient-to-r from-green-600 to-blue-600 hover:from-green-700 hover:to-blue-700 text-white shadow-lg'
+                  }`}
+                >
+                  <Play className="w-4 h-4" />
+                  <span>{demoRunning ? 'Running...' : 'Run Complete Demo'}</span>
+                </button>
+                
+                <button
+                  onClick={fetchJobs}
+                  disabled={loading}
+                  className="flex items-center space-x-2 bg-blue-600 hover:bg-blue-700 px-6 py-2 rounded-lg font-medium transition"
+                >
+                  <RefreshCw className={`w-4 h-4 ${loading ? 'animate-spin' : ''}`} />
+                  <span>Refresh Jobs</span>
+                </button>
+              </div>
+              
+              {demoStatus && (
+                <div className={`mt-3 p-3 rounded-lg flex items-start space-x-2 ${
+                  demoStatus.includes('❌') 
+                    ? 'bg-red-900 bg-opacity-50 border border-red-500' 
+                    : demoStatus.includes('✅')
+                    ? 'bg-green-900 bg-opacity-50 border border-green-500'
+                    : 'bg-blue-900 bg-opacity-50 border border-blue-500'
+                }`}>
+                  {demoRunning && <RefreshCw className="w-4 h-4 animate-spin mt-0.5" />}
+                  {demoStatus.includes('❌') && <AlertCircle className="w-4 h-4 text-red-400 mt-0.5" />}
+                  {demoStatus.includes('✅') && <CheckCircle className="w-4 h-4 text-green-400 mt-0.5" />}
+                  <span className="text-sm font-mono">{demoStatus}</span>
+                </div>
+              )}
+            </div>
+          </div>
+        </div>
+
         <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-8">
           <div className="bg-black bg-opacity-40 backdrop-blur-md border border-blue-500 rounded-xl p-6">
             <div className="flex items-center justify-between">
@@ -148,7 +368,14 @@ function App() {
             </div>
           ) : (
             <div className="space-y-4">
-              {jobs.map((job) => (
+              {jobs
+                .sort((a, b) => {
+                  // Sort by creation time (latest first)
+                  const aTime = new Date(a.createdAt || 0).getTime();
+                  const bTime = new Date(b.createdAt || 0).getTime();
+                  return bTime - aTime; // Descending order (latest first)
+                })
+                .map((job) => (
                 <div key={job.jobNid} className="bg-gray-800 bg-opacity-50 border border-gray-700 rounded-lg p-4 hover:border-blue-500 transition cursor-pointer" onClick={() => fetchJobHistory(job.jobNid)}>
                   <div className="flex items-start justify-between">
                     <div className="flex-1">

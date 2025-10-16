@@ -22,6 +22,14 @@ const app = express();
 app.use(cors());
 app.use(express.json());
 
+// Middleware to extract and attach the CAPTURE token from request headers
+app.use((req, res, next) => {
+  // Check for token in X-Capture-Token header, fall back to config
+  const headerToken = req.headers['x-capture-token'];
+  req.captureToken = headerToken || CONFIG.CAPTURE_TOKEN;
+  next();
+});
+
 // Configuration
 const CONFIG = {
   CAPTURE_TOKEN: process.env.CAPTURE_TOKEN || 'YOUR_CAPTURE_TOKEN_HERE',
@@ -54,7 +62,7 @@ function generateSHA256(data) {
 }
 
 // Helper: Commit event to blockchain
-async function commitEvent(jobNid, eventData, commitMessage) {
+async function commitEvent(jobNid, eventData, commitMessage, captureToken) {
   if (MOCK) {
     // Return a fake commit result
     return {
@@ -68,7 +76,7 @@ async function commitEvent(jobNid, eventData, commitMessage) {
   const response = await fetch(CONFIG.COMMIT_API, {
     method: 'POST',
     headers: {
-      'Authorization': `token ${CONFIG.CAPTURE_TOKEN}`,
+      'Authorization': `token ${captureToken}`,
       'Content-Type': 'application/json'
     },
     body: JSON.stringify({
@@ -139,7 +147,7 @@ app.post('/api/jobs/submit', async (req, res) => {
       const response = await fetch(`${CONFIG.API_BASE}/assets/`, {
         method: 'POST',
         headers: {
-          'Authorization': `token ${CONFIG.CAPTURE_TOKEN}`,
+          'Authorization': `token ${req.captureToken}`,
           'Content-Type': 'application/json'
         },
         body: JSON.stringify({
@@ -176,7 +184,7 @@ app.post('/api/jobs/submit', async (req, res) => {
     };
 
     console.log(`Committing JobSubmitted event for NID: ${result.nid}`);
-    const commitResult = await commitEvent(result.nid, eventData, 'Job submitted to queue');
+    const commitResult = await commitEvent(result.nid, eventData, 'Job submitted to queue', req.captureToken);
 
     const txHash = commitResult.txHash || commitResult.transaction_hash || commitResult.cid || 'pending';
 
@@ -241,7 +249,8 @@ app.post('/api/jobs/:nid/scheduled', async (req, res) => {
     const result = await commitEvent(
       nid,
       eventData,
-      `Job scheduled on ${eventData.scheduledNode}`
+      `Job scheduled on ${eventData.scheduledNode}`,
+      req.captureToken
     );
 
     // Update job in registry
@@ -301,7 +310,8 @@ app.post('/api/jobs/:nid/started', async (req, res) => {
     const result = await commitEvent(
       nid,
       eventData,
-      'Job execution started'
+      'Job execution started',
+      req.captureToken
     );
 
     // Update job in registry
@@ -359,7 +369,8 @@ app.post('/api/jobs/:nid/progress', async (req, res) => {
     const result = await commitEvent(
       nid,
       eventData,
-      `Progress checkpoint at ${eventData.progress}%`
+      `Progress checkpoint at ${eventData.progress}%`,
+      req.captureToken
     );
 
     // Update job in registry
@@ -424,7 +435,8 @@ app.post('/api/jobs/:nid/completed', async (req, res) => {
     const result = await commitEvent(
       nid,
       eventData,
-      'Job completed successfully'
+      'Job completed successfully',
+      req.captureToken
     );
 
     // Update job in registry
@@ -485,7 +497,8 @@ app.post('/api/jobs/:nid/failed', async (req, res) => {
     const result = await commitEvent(
       nid,
       eventData,
-      `Job failed: ${eventData.errorCode}`
+      `Job failed: ${eventData.errorCode}`,
+      req.captureToken
     );
 
     res.json({
@@ -508,54 +521,29 @@ app.get('/api/jobs/:nid/history', async (req, res) => {
   try {
     const { nid } = req.params;
 
-    const response = await fetch(
-      `${CONFIG.API_BASE}/assets/${nid}/history/`,
-      {
-        headers: {
-          'Authorization': `token ${CONFIG.CAPTURE_TOKEN}`
-        }
-      }
-    );
-
-    if (!response.ok) {
-      throw new Error('Failed to fetch job history');
+    // First, get the job from our registry
+    const job = jobRegistry.get(nid);
+    if (!job) {
+      return res.status(404).json({
+        success: false,
+        error: 'Job not found in registry'
+      });
     }
 
-    const data = await response.json();
-
-    // Parse commits and sort by timestamp
-    const events = data.commits
-      .map(commit => {
-        try {
-          return JSON.parse(commit.custom);
-        } catch (e) {
-          return null;
-        }
-      })
-      .filter(e => e !== null)
-      .sort((a, b) => a.timestamp - b.timestamp);
-
-    // Calculate metrics
-    const submitted = events.find(e => e.eventType === 'JobSubmitted');
-    const completed = events.find(e => e.eventType === 'JobCompleted');
-    
-    let metrics = null;
-    if (submitted && completed) {
-      const duration = completed.timestamp - submitted.timestamp;
-      metrics = {
-        duration: duration,
-        gpuHoursUsed: completed.gpuHoursUsed || duration / 3600,
-        cost: (completed.gpuHoursUsed || duration / 3600) * 2.5, // $2.5/GPU-hour
-        efficiency: completed.completionStatus === 'success' ? 100 : 0
-      };
-    }
-
+    // Return job data with events from registry
+    // We use the in-memory events instead of fetching from blockchain
+    // because they're faster and we already have them
     res.json({
       success: true,
+      jobId: job.jobId,
       jobNid: nid,
-      events,
-      metrics,
-      totalEvents: events.length
+      jobType: job.jobType,
+      status: job.status,
+      submittedBy: job.submittedBy,
+      gpuRequirement: job.gpuRequirement,
+      events: job.events || [],
+      totalEvents: (job.events || []).length,
+      createdAt: job.createdAt
     });
 
   } catch (error) {

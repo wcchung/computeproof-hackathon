@@ -21,8 +21,8 @@
 ### 1. Clone and Setup
 
 ```bash
-git clone https://github.com/wcchung/computeproof-hackathon.git
-cd computeproof-hackathon
+git clone https://github.com/akira-syou/computeproof.git
+cd computeproof
 ```
 
 ### 2. Configure Environment
@@ -161,12 +161,12 @@ This will:
 ### Step 2: Run the Test
 ```bash
 # In a new terminal
-./test-gpu-flow.sh
+./test-complete-lifecycle.sh
 ```
 
 Watch as it:
-- Submits 2 GPU jobs
-- Records all lifecycle events
+- Submits a GPU job
+- Records all lifecycle events (5 stages)
 - Generates blockchain transaction hashes
 - Creates complete audit trail
 
@@ -192,7 +192,7 @@ You'll see:
 |--------|-------------|
 | `./start-demo.sh` | Start backend + frontend |
 | `./stop-demo.sh` | Stop all servers |
-| `./test-gpu-flow.sh` | Run automated test |
+| `./test-complete-lifecycle.sh` | Run automated test |
 
 ---
 
@@ -298,8 +298,8 @@ rm -rf backend/node_modules frontend/node_modules
 ## 🎥 Recording a Demo
 
 1. Start the demo: `./start-demo.sh`
-2. Open dashboard: http://localhost:3000
-3. Run test in split terminal: `./test-gpu-flow.sh`
+2. Open dashboard: http://localhost:8000
+3. Run test in split terminal: `./test-complete-lifecycle.sh`
 4. Record your screen showing both!
 5. Upload to YouTube for hackathon submission
 

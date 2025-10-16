@@ -48,3 +48,7 @@ test-output.log
 
 # Mock assets (not needed with real API)
 backend/mock-assets/
+
+# Internal documentation (for development only)
+DOCS_CONSOLIDATED.md
+TEST_CLEANUP.md

@@ -133,8 +133,8 @@ Error logging with error code, stack trace, and retry information.
 
 1. **Clone the repository**
 ```bash
-git clone https://github.com/wcchung/computeproof-hackathon.git
-cd computeproof-hackathon
+git clone https://github.com/akira-syou/computeproof.git
+cd computeproof
 ```
 
 2. **Get your Capture Token**
@@ -538,11 +538,11 @@ ngrok http 3000
 2. **Record a demo video:**
 ```bash
 # Run the test
-./test-gpu-flow.sh
+./test-complete-lifecycle.sh
 
 # Screen record showing:
 # - Terminal output with transaction hashes
-# - Dashboard at localhost:3000
+# - Dashboard at localhost:8000
 # - Job details and event timeline
 ```
 
