@@ -1,0 +1,50 @@
+# Node modules
+node_modules/
+**/node_modules/
+
+# Environment files
+.env
+backend/.env
+
+# Logs
+*.log
+backend/backend.log
+backend/server.log
+/tmp/*.log
+
+# Process ID files
+.backend.pid
+.frontend.pid
+*.pid
+
+# Build outputs
+frontend/dist/
+dist/
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# IDE files
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# Temporary files
+tmp/
+temp/
+*.tmp
+
+# Package lock files (optional - some teams commit these)
+# Uncomment if you don't want to track lock files
+# package-lock.json
+# yarn.lock
+
+# Test outputs
+gpu-test-results.txt
+test-output.log
+
+# Mock assets (not needed with real API)
+backend/mock-assets/
